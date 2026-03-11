@@ -1,0 +1,19 @@
+# Lambda Layer containing cryptography for Python 3.10 on Amazon Linux 2023
+Build on AWS CloudShell (no Docker needed)
+CloudShell runs Amazon Linux 2023 and already includes Python 3.10.
+1. Open CloudShell
+In AWS Console → top-right → CloudShell
+2. Create layer folder
+Shellmkdir -p layer/python/lib/python3.10/site-packagesShow more lines
+3. Install required build tools
+Cryptography needs compilers and OpenSSL dev headers:
+Shellsudo dnf update -ysudo dnf install -y python3.10 python3.10-devel python3.10-pip gcc gcc-c++ openssl-devel rust cargoShow more lines
+4. Install cryptography into the layer path
+Shellpip3.10 install cryptography -t layer/python/lib/python3.10/site-packagesShow more lines
+Optional: reduce size
+Shellfind layer -name "*.so" -exec strip {} \; || trueShow more lines
+5. Zip layer
+Shellcd layerzip -r9 ../cryptography-layer.zip .cd ..Show more lines
+Your zip file cryptography-layer.zip is now ready.
+6. Upload to Lambda Layers
+AWS Console → Lambda → Layers → Create Layer → upload cryptography-layer.zip.

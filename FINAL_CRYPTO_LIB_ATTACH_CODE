@@ -1,0 +1,85 @@
+#####################################
+# Short Version: Build & Publish Layer (No Attach)
+
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ===== USER SETTINGS =====
+REGION="us-west-2"                    # Change as needed
+LAYER_NAME="crypto-cffi-py312-pinned" # Layer name
+CRYPTO_VERSION="46.0.3"
+CFFI_VERSION="2.0.0"
+# ==========================
+
+echo "==> Install Python 3.12 and basic build tools..."
+sudo dnf update -y
+sudo dnf install -y python3.12 python3.12-pip python3.12-devel gcc openssl-devel libffi-devel zip jq
+
+echo "==> Upgrade pip..."
+python3.12 -m ensurepip || true
+python3.12 -m pip install --upgrade pip wheel setuptools
+
+WORKDIR="$(pwd)/lambda_layer_build"
+rm -rf "$WORKDIR"
+mkdir -p "$WORKDIR/layer/python"
+
+echo "==> Install pinned cryptography/cffi into layer/python..."
+python3.12 -m pip install \
+  --target "$WORKDIR/layer/python" \
+  "cryptography==${CRYPTO_VERSION}" "cffi==${CFFI_VERSION}"
+
+echo "==> Zip the layer..."
+cd "$WORKDIR/layer"
+zip -r "../${LAYER_NAME}_x86_64.zip" python
+cd ..
+LAYER_ZIP="${WORKDIR}/${LAYER_NAME}_x86_64.zip"
+
+echo "==> Publish layer to Lambda..."
+PUBLISH_OUTPUT=$(aws lambda publish-layer-version \
+  --layer-name "$LAYER_NAME" \
+  --zip-file "fileb://$LAYER_ZIP" \
+  --compatible-runtimes python3.12 \
+  --region "$REGION")
+
+LAYER_VERSION_ARN=$(echo "$PUBLISH_OUTPUT" | jq -r '.LayerVersionArn')
+echo "==> Layer published: $LAYER_VERSION_ARN"
+
+
+#####################################
+##Attach This Layer to Any Function (run per function)
+
+
+REGION="us-west-2"
+FUNCTION_NAME="your-function-name"
+LAYER_VERSION_ARN="arn:aws:lambda:us-west-2:ACCOUNT_ID:layer:crypto-cffi-py312-pinned:VERSION"  # paste from publish output
+
+aws lambda update-function-configuration \
+  --function-name "$FUNCTION_NAME" \
+  --layers "$LAYER_VERSION_ARN" \
+  --region "$REGION"
+
+aws lambda wait function-updated \
+  --function-name "$FUNCTION_NAME" \
+  --region "$REGION"
+
+# Verify:
+aws lambda get-function-configuration \
+  --function-name "$FUNCTION_NAME" \
+  --region "$REGION" \
+  --query 'Layers[].Arn'
+
+
+#####################################
+Optional quick import check (per function)
+If you kept the temporary import‑check path in your handler:
+
+
+aws lambda invoke \
+  --function-name "your-function-name" \
+  --payload '{"action":"check_imports"}' \
+  --cli-binary-format raw-in-base64-out \
+  --region "us-west-2" \
+  response.json && cat response.json | jq .
+
+
